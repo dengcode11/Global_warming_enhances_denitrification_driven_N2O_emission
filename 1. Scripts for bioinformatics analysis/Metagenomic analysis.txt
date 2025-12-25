@@ -1,0 +1,247 @@
+### Quality control
+# Activate the fastp environment for sequencing data QC
+conda activate fastp
+# Perform quality control on raw paired-end sequencing data
+# -i: Forward raw reads input
+# -I: Reverse raw reads input  
+# -o: Forward cleaned reads output
+# -O: Reverse cleaned reads output
+fastp -i path/to/Rawreads_1.fq.gz -I path/to/Rawreads_2.fq.gz \
+-o path/to/CleanReads_1.fq -O path/to/CleanReads_2.fq
+
+# Metagenomic Assembly
+# Activate megahit environment for assembly
+conda activate megahit
+# Assemble raw reads into contigs
+# -1: Forward reads input
+# -2: Reverse reads input
+# -o: Assembly output directory
+# --min-contig-len: Minimum contig length (2500 bp)
+# -t: Number of threads (20)
+megahit -1 path/to/Rawreads_1.fq -2 path/to/Rawreads_2.fq \ 
+-o path/to/Assembly --min-contig-len 2500 -t 20
+
+### bowtie2
+# Activate bowtie2 environment for sequence alignment
+conda activate bowtie2
+# Navigate to assembly directory
+cd path/to/Assembly
+### biuld index
+# Build an index for subsequent alignment operations.
+# bowtie2 - build is used to build an index of the reference genome.
+# final.contigs.fa is the contig file obtained from the assembly.
+# genome is the name of the index.
+bowtie2-build final.contigs.fa genome
+### Mapping
+# Perform the alignment operation.
+# nohup is used to run the command in the background so that it will not stop even if the terminal is closed.
+# -x specifies the prefix of the index file.
+# -1 specifies the path of the forward cleaned data file.
+# -2 specifies the path of the reverse cleaned data file.
+# -S specifies the output path of the SAM file.
+# -p specifies the number of threads to use, which is 20.
+# & indicates that the command should be executed in the background.
+nohup bowtie2 -x genome -1 path/to/CleanReads_1.fq -2 path/to/CleanReads_2.fq \ 
+-S path/to/sample.sam -p 20 &
+
+
+### samtools
+# Activate the samtools environment. samtools is a tool for processing SAM/BAM files.
+conda activate samtools
+# Convert the SAM file to a BAM file.
+# -@ specifies the number of threads to use, which is 100.
+# -bS indicates that the input is a SAM file and the output is a BAM file.
+samtools view -@ 100 -bS path/to/sample.sam > path/to/sample.bam
+# Sort the BAM file.
+# -o specifies the output path of the sorted BAM file.
+# -@ specifies the number of threads to use, which is 100.
+samtools sort path/to/sample.bam -o path/to/sample.sorted -@ 100
+
+
+### Metabat2
+# Activate the metabat2 environment. metabat2 is a tool for metagenomic binning.
+conda activate metabat2
+# Calculate the depth information of contigs.
+# --outputDepth specifies the name of the file to output the depth information.
+# path/to/sample.sorted is the path of the sorted BAM file.
+jgi_summarize_bam_contig_depths --outputDepth depth.txt path/to/sample.sorted
+# Perform the binning operation.
+# -i specifies the input path of the contig file.
+# -a specifies the path of the depth information file.
+# -o specifies the output directory for the binning results.
+metabat2 -i path/to/final.contigs.fasta -a depth.txt -o bins/SampleName
+
+
+### cp
+# Copy all FA files obtained from binning to the specified directory.
+# -f forces overwriting of target files.
+# -r recursively copies directories.
+# -a preserves file attributes.
+cp -frap path/to/bins/*.fa  path/to/ALLMAGs
+
+
+### dRep
+# Activate the dRep environment. dRep is a tool for metagenomic dereplication.
+conda activate dRep
+# Perform metagenomic dereplication.
+# dereplicate is the dereplication sub - command of dRep.
+# -g specifies the input path of the FA files.
+# -comp specifies the minimum completeness as 50%.
+# -con specifies the maximum contamination as 10%.
+dRep dereplicate drep -g path/to/ALLMAG/*.fa -comp 50 -con 10
+
+
+### CheckM
+# Activate the checkm environment. checkm is a tool for evaluating the quality of metagenomic bins.
+conda activate checkm
+# Evaluate the quality of the dereplicated genomes.
+# lineage_wf is the workflow sub - command of checkm.
+# --tab_table outputs the results in tabular form.
+# -x specifies the extension of the input files.
+# path/to/drep/dereplicated_genomes is the directory of the dereplicated genomes.
+# checkm_out is the output directory for the results.
+# -t specifies the number of threads to use, which is 100.
+# -f specifies the name of the output file.
+# -a specifies the algorithm to use.
+checkm lineage_wf --tab_table -x fa path/to/drep/dereplicated_genomes \
+checkm_out -t 100 -f checkm -a AAI
+
+
+### GTDBtk
+# Activate the gtdbtk environment. gtdbtk is a tool for metagenomic classification.
+conda activate gtdbtk
+# Classify the dereplicated genomes.
+# classify_wf is the classification workflow sub - command of gtdbtk.
+# --genome_dir specifies the input directory of the genomes.
+# --out_dir specifies the output directory for the results.
+# --extension specifies the extension of the input files.
+# --cpu specifies the number of CPU cores to use, which is 20.
+gtdbtk classify_wf --genome_dir path/to/drep/dereplicated_genomes  \
+--out_dir path/to/tax_out --extension fa --cpu 20
+
+
+### coverM
+# Activate the coverm environment. coverm is a tool for calculating genome coverage.
+conda activate coverm
+# Calculate the coverage of the dereplicated genomes.
+# genome is the sub - command of coverm.
+# --coupled specifies the use of paired - end sequencing data.
+# --genome - fasta - directory specifies the input directory of the genomes.
+# -o specifies the output path of the results file.
+# --threads specifies the number of threads to use, which is 20.
+coverm genome --coupled path/to/CleanReads_1.fq path/to/CleanReads_2.fq \
+--genome-fasta-directory path/to/drep/dereplicated_genomes -o SampleName.tsv --threads 20
+
+
+### METABOLIC
+# Activate the METABOLIC environment. METABOLIC is a tool for metagenomic functional annotation.
+conda activate METABOLIC
+# Change to the directory where the METABOLIC tool is located.
+cd path/to/METABOLIC
+# Use METABOLIC to perform functional annotation on the dereplicated genomes.
+# -in - gn specifies the input directory of the genomes.
+# -p specifies the processing mode as single - sample.
+# -o specifies the output directory for the results.
+perl METABOLIC-G.pl -in-gn path/to/drep/dereplicated_genomes -p single -o path/to/Function
+
+
+### Prodigal
+# Use Prodigal to perform gene prediction on contigs.
+# -i specifies the input path of the contig file.
+# -a specifies the output path of the protein sequence file.
+# -d specifies the output path of the nucleic acid sequence file.
+# -p specifies the prediction mode as metagenomic mode.
+prodigal -i path/to/final.contigs.fa -a path/to/final.contigs.faa -d M_path/to/final.contigs.fna -p meta
+
+
+### hmmsearch
+# Use hmmsearch to perform functional search on the predicted protein sequences.
+# Gene.hmm is the HMM model file.
+# path/to/final.contigs.faa is the predicted protein sequence file.
+# Gene.out is the output search result file.
+hmmsearch Gene.hmm path/to/final.contigs.faa > Gene.out
+
+
+### extract.py
+# The following is a Python script for extracting sequences with specific IDs from a nucleic acid sequence file.
+from Bio import SeqIO
+# Open a file for writing the extracted sequences.
+result= open('Gene.fa', 'w')
+# Initialize an empty dictionary for storing the IDs of the sequences to be extracted.
+a={}
+# Open the file containing the IDs of the sequences to be extracted.
+f=open('ID.txt', 'r')
+# Read the ID file line by line.
+for line in f:
+    # Store the read ID as a key in the dictionary after removing leading and trailing whitespace.
+    a[line.strip()]=1
+# Close the ID file.
+f.close()
+# Parse the nucleic acid sequence file line by line.
+for seq_record in SeqIO.parse('final.contigs.fna', 'fasta'):
+    # Check if the ID of the current sequence is in the dictionary.
+    if str(seq_record.id) in a:
+        # If it exists, write the description information of the sequence to the result file.
+        result.write('>'+str(seq_record.description)+'\n')
+        # Write the sequence itself to the result file.
+        result.write(str(seq_record.seq)+'\n')
+# Close the result file.
+result.close()
+# Print a prompt message indicating that the operation is completed.
+print('ok')
+
+# python
+# Execute the Python script.
+python extract.py
+
+
+### bowtie2
+# Activate the bowtie2 environment.
+conda activate bowtie2
+# Build an index for the extracted gene sequence file.
+bowtie2-build path/to/Gene.fa gene
+# Align the cleaned data to the extracted gene sequences.
+# -x specifies the prefix of the index file.
+# -1 specifies the path of the forward cleaned data file.
+# -2 specifies the path of the reverse cleaned data file.
+# -S specifies the output path of the SAM file.
+# -p specifies the number of threads to use, which is 20.
+bowtie2 -x genome -1 path/to/CleanReads_1.fq -2 path/to/CleanReads_2.fq \ 
+-S path/to/sample.sam -p 20
+
+
+### bbmap
+# Activate the bbmap environment. bbmap is a toolkit for bioinformatics analysis.
+conda activate bbmap
+# Calculate the RPKM values of the alignment results.
+# in specifies the input path of the SAM file.
+# rpkm specifies the output path of the RPKM file.
+pileup.sh in=path/to/sample.sam rpkm=path/to/sample.txt
+
+
+### Phylogenetic Tree Analysis
+# The following are the steps for phylogenetic tree analysis.
+
+# Muscle
+# Use Muscle to perform multiple sequence alignment on specific gene sequences.
+# -align specifies the input path of the gene sequence file.
+# -output specifies the output path of the alignment result file.
+muscle -align path/to/nosZGene.fa -output path/to/nosZ_align.fa
+
+# trimal
+# Change to the directory where the trimal tool is located.
+cd path/to/trimal
+# Use trimal to trim the multiple sequence alignment results.
+# -in specifies the input path of the alignment result file.
+# -out specifies the output path of the trimmed alignment result file.
+# -gt specifies the minimum column score as 0.95.
+# -cons specifies the minimum conservation score as 50.
+source/trimal -in path/to/nosZ_align.fa -out path/to/nosZtimal.fa -gt 0.95 -cons 50
+
+# iqtree
+# Use iqtree to construct a phylogenetic tree.
+# -s specifies the input path of the trimmed alignment result file.
+# -m specifies the model selection method as MFP.
+# -bb specifies the fast bootstrap value as 1000.
+# -nt specifies the number of threads to use, which is 20.
+iqtree -s nosZtimal.fa -m MFP -bb 1000 -nt 20
